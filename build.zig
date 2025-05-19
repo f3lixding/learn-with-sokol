@@ -18,14 +18,18 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const bins_to_add = [_]Bin{
-        .{ .name = "cube", .path = b.path("src/cube.zig") },
-        .{ .name = "quad", .path = b.path("src/quad.zig") },
-        .{ .name = "keyboard", .path = b.path("src/keyboard.zig") },
-    };
-
-    for (bins_to_add) |bin_to_add| {
-        build_bin(b, bin_to_add, sokol_dep, target, optimize);
+    const src_dir = std.fs.cwd().openDir("src", .{ .iterate = true }) catch unreachable;
+    var walker = src_dir.walk(b.allocator) catch unreachable;
+    defer walker.deinit();
+    while (walker.next() catch unreachable) |file| {
+        if (std.mem.eql(u8, ".zig", std.fs.path.extension(file.path))) {
+            const name = file.basename;
+            const path = b.path(file.path);
+            build_bin(b, .{
+                .name = name,
+                .path = path,
+            }, sokol_dep, target, optimize);
+        }
     }
 }
 
