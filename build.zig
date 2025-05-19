@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) void {
     const bins_to_add = [_]Bin{
         .{ .name = "cube", .path = b.path("src/cube.zig") },
         .{ .name = "quad", .path = b.path("src/quad.zig") },
+        .{ .name = "keyboard", .path = b.path("src/keyboard.zig") },
     };
 
     for (bins_to_add) |bin_to_add| {
