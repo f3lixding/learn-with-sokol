@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
     defer walker.deinit();
     while (walker.next() catch unreachable) |file| {
         if (std.mem.eql(u8, ".zig", std.fs.path.extension(file.path))) {
-            const name = file.basename;
+            const name = std.fs.path.stem(file.basename);
             const path = b.path(file.path);
             build_bin(b, .{
                 .name = name,
