@@ -24,7 +24,7 @@ pub fn build(b: *std.Build) void {
     while (walker.next() catch unreachable) |file| {
         if (std.mem.eql(u8, ".zig", std.fs.path.extension(file.path))) {
             const name = std.fs.path.stem(file.basename);
-            const path = b.path(file.path);
+            const path = b.path(b.fmt("src/{s}", .{file.path}));
             build_bin(b, .{
                 .name = name,
                 .path = path,
