@@ -12,15 +12,20 @@ const max_segments: usize = 10; // Number of segments in the lightning bolt
 const jitter_amount: f32 = 0.1; // How much each segment can deviate
 const segment_length: f32 = 0.8; // Length of each segment
 const regen_interval: f32 = 0.2; // Time between lightning regenerations
+const change_thres: f32 = 0.75;
 
 const Direction = enum { FOR, BACK };
+
+const Segment = struct {
+    x: f32 = 0,
+    y: f32 = 0,
+};
 
 // Using a collection of static fields
 // This struct is never instantiated
 const state = struct {
     var pass_action: sg.PassAction = .{};
-    var points_x: [max_segments + 1]f32 = undefined;
-    var points_y: [max_segments + 1]f32 = undefined;
+    var segments: [max_segments + 1]Segment = undefined;
     var dir: Direction = .FOR;
     var seed: u64 = 0;
     var time_since_regen: f32 = 0;
@@ -36,9 +41,12 @@ fn random_float() f32 {
 }
 
 fn init_lightning() void {
+    // We want to introduce a random chance as to when the lightning will be changed
+    if (random_float() < change_thres) {
+        return;
+    }
     // Start at origin
-    state.points_x[0] = 0;
-    state.points_y[0] = 0;
+    state.segments[0] = .{};
 
     // Generate a jagged path for the lightning
     var i: usize = 1;
@@ -52,8 +60,8 @@ fn init_lightning() void {
 
         // Calculate new point
         const seg_len = state.total_length / max_segments * random_float();
-        state.points_x[i] = state.points_x[i - 1] + seg_len * @sin(angle);
-        state.points_y[i] = state.points_y[i - 1] + seg_len * @cos(angle);
+        state.segments[i].x = state.segments[i - 1].x + seg_len * @sin(angle);
+        state.segments[i].y = state.segments[i - 1].y + seg_len * @sin(angle);
     }
 }
 
@@ -123,10 +131,10 @@ export fn frame() void {
     var i: usize = 0;
     while (i < max_segments) : (i += 1) {
         // Get original points
-        const x1 = state.points_x[i];
-        const y1 = state.points_y[i];
-        const x2 = state.points_x[i + 1];
-        const y2 = state.points_y[i + 1];
+        const x1 = state.segments[i].x;
+        const y1 = state.segments[i].y;
+        const x2 = state.segments[i + 1].x;
+        const y2 = state.segments[i + 1].y;
 
         // Apply rotation to both points
         const rotated_x1 = x1 * cos_theta - y1 * sin_theta;
