@@ -8,34 +8,75 @@ const sgl = sokol.gl;
 const math = std.math;
 
 const per_frame_speed: f64 = 1;
+const max_segments: usize = 10; // Number of segments in the lightning bolt
+const jitter_amount: f32 = 0.1; // How much each segment can deviate
+const segment_length: f32 = 0.8; // Length of each segment
+const regen_interval: f32 = 0.2; // Time between lightning regenerations
+
+const Direction = enum { FOR, BACK };
 
 // Using a collection of static fields
 // This struct is never instantiated
 const state = struct {
     var pass_action: sg.PassAction = .{};
-    var x1: f32 = 0;
-    var x2: f32 = 0;
-    var y1: f32 = 0;
-    var y2: f32 = 5.0;
-    var pip: sgl.Pipeline = .{};
+    var points_x: [max_segments + 1]f32 = undefined;
+    var points_y: [max_segments + 1]f32 = undefined;
+    var dir: Direction = .FOR;
+    var seed: u64 = 0;
+    var time_since_regen: f32 = 0;
+    var total_length: f32 = 5.0; // Total length of the lightning
+    var rotation_angle: f32 = 0;
 };
 
-// This function accepts a state
-fn tick(input: anytype, dt: f64) void {
+// Simple random number generator
+fn random_float() f32 {
+    state.seed = state.seed *% 6364136223846793005 +% 1;
+    const value = (state.seed >> 33) ^ state.seed;
+    return @as(f32, @floatFromInt(value)) / @as(f32, @floatFromInt(std.math.maxInt(u64)));
+}
+
+fn init_lightning() void {
+    // Start at origin
+    state.points_x[0] = 0;
+    state.points_y[0] = 0;
+
+    // Generate a jagged path for the lightning
+    var i: usize = 1;
+    while (i <= max_segments) : (i += 1) {
+        // Calculate base direction (straight line)
+        const base_angle = 0; // Pointing upward
+
+        // Add randomness to the angle
+        const jitter = (random_float() * 2 - 1) * jitter_amount;
+        const angle = base_angle + jitter;
+
+        // Calculate new point
+        const seg_len = state.total_length / max_segments * random_float();
+        state.points_x[i] = state.points_x[i - 1] + seg_len * @sin(angle);
+        state.points_y[i] = state.points_y[i - 1] + seg_len * @cos(angle);
+    }
+}
+
+// This function updates the lightning state
+fn tick(dt: f64) void {
+    // Update time since last regeneration
+    state.time_since_regen += @floatCast(dt);
+
+    // Regenerate lightning if needed
+    if (state.time_since_regen >= regen_interval) {
+        init_lightning();
+        state.time_since_regen = 0;
+    }
+
+    // Determine rotation direction
+    const multiplier: f64 = if (state.dir == .BACK) -1 else 1;
+
     // Calculate rotation angle for this frame
-    const degree_to_be_moved = @as(f64, (dt * per_frame_speed * 60));
-    const radians = -degree_to_be_moved * (math.pi / 180.0);
+    const degree_to_be_moved = dt * per_frame_speed * 60;
+    const radians = multiplier * degree_to_be_moved * (math.pi / 180.0);
 
-    const cos_theta = math.cos(radians);
-    const sin_theta = math.sin(radians);
-
-    // Get current position
-    const x = input.x2;
-    const y = input.y2;
-
-    // Rotate around origin (0,0)
-    input.x2 = @floatCast(x * cos_theta - y * sin_theta);
-    input.y2 = @floatCast(x * sin_theta + y * cos_theta);
+    // Update total rotation angle
+    state.rotation_angle += @floatCast(radians);
 }
 
 export fn init() void {
@@ -50,19 +91,54 @@ export fn init() void {
         .load_action = .CLEAR,
         .clear_value = .{ .r = 0, .g = 0, .b = 0 },
     };
+
+    // Initialize random number generator with current time
+    state.seed = @intCast(std.time.milliTimestamp());
+
+    // Initialize the lightning bolt
+    init_lightning();
 }
 
 export fn frame() void {
-    sg.beginPass(.{});
+    sg.beginPass(.{
+        .action = state.pass_action,
+        .swapchain = sglue.swapchain(),
+    });
 
     const dt = sapp.frameDuration();
-    tick(&state, dt);
+    tick(dt); // We don't use the input parameter
 
     sgl.defaults();
     sgl.beginLines();
-    sgl.c3f(0, 0, 1);
-    sgl.v2f(state.x1, state.y1);
-    sgl.v2f(state.x2, state.y2);
+
+    // Draw lightning bolt as a series of connected line segments
+    // Use a bright blue color for the lightning
+    sgl.c3f(0.3, 0.3, 1.0);
+
+    // Calculate rotation matrix
+    const cos_theta = @as(f32, @floatCast(math.cos(state.rotation_angle)));
+    const sin_theta = @as(f32, @floatCast(math.sin(state.rotation_angle)));
+
+    // Draw each segment of the lightning with rotation applied
+    var i: usize = 0;
+    while (i < max_segments) : (i += 1) {
+        // Get original points
+        const x1 = state.points_x[i];
+        const y1 = state.points_y[i];
+        const x2 = state.points_x[i + 1];
+        const y2 = state.points_y[i + 1];
+
+        // Apply rotation to both points
+        const rotated_x1 = x1 * cos_theta - y1 * sin_theta;
+        const rotated_y1 = x1 * sin_theta + y1 * cos_theta;
+        const rotated_x2 = x2 * cos_theta - y2 * sin_theta;
+        const rotated_y2 = x2 * sin_theta + y2 * cos_theta;
+
+        // Draw the rotated line segment
+        sgl.v2f(rotated_x1, rotated_y1);
+        sgl.v2f(rotated_x2, rotated_y2);
+    }
+
     sgl.end();
     sgl.draw();
 
@@ -74,11 +150,22 @@ export fn cleanup() void {
     sg.shutdown();
 }
 
+export fn handle_event(event: [*c]const sapp.Event) void {
+    const event_type = &event.*.type;
+    if (event_type.* == .KEY_DOWN) {
+        state.dir = switch (state.dir) {
+            .FOR => .BACK,
+            .BACK => .FOR,
+        };
+    }
+}
+
 pub fn main() void {
     sapp.run(.{
         .init_cb = init,
         .frame_cb = frame,
         .cleanup_cb = cleanup,
+        .event_cb = handle_event,
         .width = 640,
         .height = 480,
         .icon = .{ .sokol_default = true },
