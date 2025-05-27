@@ -13,6 +13,7 @@ const jitter_amount: f32 = 0.1; // How much each segment can deviate
 const segment_length: f32 = 0.8; // Length of each segment
 const regen_interval: f32 = 0.2; // Time between lightning regenerations
 const change_thres: f32 = 0.75;
+const branch_thres: f32 = 0.5;
 
 const Direction = enum { FOR, BACK };
 
@@ -34,6 +35,7 @@ const state = struct {
     var pass_action: sg.PassAction = .{};
     var segments: [max_segments + 1]Segment = undefined;
     var branch_segments: [max_segments + 1]BranchSegment = undefined;
+    var branch_segment_len: usize = 0;
     var dir: Direction = .FOR;
     var seed: u64 = 0;
     var time_since_regen: f32 = 0;
@@ -47,12 +49,12 @@ fn branch_by_percentage(
     cur_point: struct { x: f32, y: f32 },
 ) BranchSegment {
     const slope: f32 = (cur_point.y - last_point.y) / (cur_point.x - last_point.x);
-    const root_x = perc * (cur_point.x - last_point.x);
+    const root_x = perc * (last_point.x - cur_point.x);
     const root_y = slope * (root_x - last_point.x) + last_point.y;
     const base_angle = 0; // Pointing upward
-    const jitter = (random_float() * 10 - 1) * jitter_amount;
+    const jitter = (random_float() * 100) * jitter_amount;
     const angle = base_angle + jitter;
-    const seg_len = state.total_length / max_segments * random_float() * 0.2;
+    const seg_len = (state.total_length / max_segments) * random_float() * 0.2;
     const tip_x = root_x + seg_len * @sin(angle);
     const tip_y = root_y + seg_len * @cos(angle);
     return .{
@@ -77,6 +79,7 @@ fn init_lightning() void {
     }
     // Start at origin
     state.segments[0] = .{};
+    state.branch_segment_len = 0;
 
     // Generate a jagged path for the lightning
     var i: usize = 1;
@@ -93,12 +96,15 @@ fn init_lightning() void {
         state.segments[i].x = state.segments[i - 1].x + seg_len * @sin(angle);
         state.segments[i].y = state.segments[i - 1].y + seg_len * @cos(angle);
 
-        // Calculate branche max_segments
-        state.branch_segments[i] = branch_by_percentage(
-            random_float(),
-            .{ .x = state.segments[i - 1].x, .y = state.segments[i - 1].y },
-            .{ .x = state.segments[i].x, .y = state.segments[i].y },
-        );
+        if (random_float() > branch_thres) {
+            // Calculate branche max_segments
+            state.branch_segments[state.branch_segment_len] = branch_by_percentage(
+                random_float(),
+                .{ .x = state.segments[i - 1].x, .y = state.segments[i - 1].y },
+                .{ .x = state.segments[i].x, .y = state.segments[i].y },
+            );
+            state.branch_segment_len += 1;
+        }
     }
 }
 
@@ -145,6 +151,7 @@ export fn init() void {
 }
 
 export fn frame() void {
+    std.debug.print("branch segment len {d}\n", .{state.branch_segment_len});
     sg.beginPass(.{
         .action = state.pass_action,
         .swapchain = sglue.swapchain(),
@@ -182,12 +189,16 @@ export fn frame() void {
         // Draw the rotated line segment
         sgl.v2f(rotated_x1, rotated_y1);
         sgl.v2f(rotated_x2, rotated_y2);
+    }
 
+    sgl.c3f(1.0, 0.0, 0.0);
+    i = 0;
+    while (i < state.branch_segment_len + 1) : (i += 1) {
         // Get branch points
         const bx1 = state.branch_segments[i].x1;
         const by1 = state.branch_segments[i].y1;
-        const bx2 = state.branch_segments[i + 1].x2;
-        const by2 = state.branch_segments[i + 1].y2;
+        const bx2 = state.branch_segments[i].x2;
+        const by2 = state.branch_segments[i].y2;
 
         // Branches
         const r_bx1 = bx1 * cos_theta - by1 * sin_theta;
