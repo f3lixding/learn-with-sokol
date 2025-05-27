@@ -48,15 +48,25 @@ fn branch_by_percentage(
     last_point: struct { x: f32, y: f32 },
     cur_point: struct { x: f32, y: f32 },
 ) BranchSegment {
-    const slope: f32 = (cur_point.y - last_point.y) / (cur_point.x - last_point.x);
-    const root_x = perc * (last_point.x - cur_point.x);
-    const root_y = slope * (root_x - last_point.x) + last_point.y;
-    const base_angle = 0; // Pointing upward
-    const jitter = (random_float() * 100) * jitter_amount;
-    const angle = base_angle + jitter;
-    const seg_len = (state.total_length / max_segments) * random_float() * 0.2;
-    const tip_x = root_x + seg_len * @sin(angle);
-    const tip_y = root_y + seg_len * @cos(angle);
+    // Calculate the branch root position by interpolating between the two points
+    const root_x = last_point.x + perc * (cur_point.x - last_point.x);
+    const root_y = last_point.y + perc * (cur_point.y - last_point.y);
+
+    // Calculate the direction of the main segment
+    const main_angle = math.atan2(cur_point.y - last_point.y, cur_point.x - last_point.x);
+
+    // Branch at an angle relative to the main segment (45-90 degrees off)
+    const branch_angle_offset = (random_float() * 0.5 + 0.25) * math.pi; // 45-90 degrees
+    const branch_direction: f32 = if (random_float() > 0.5) 1.0 else -1.0; // Left or right
+    const branch_angle = main_angle + branch_direction * branch_angle_offset;
+
+    // Make branch length proportional to segment length but shorter
+    const segment_len = math.sqrt(math.pow(f32, cur_point.x - last_point.x, 2) + math.pow(f32, cur_point.y - last_point.y, 2));
+    const branch_len = segment_len * (0.3 + random_float() * 0.4); // 30-70% of segment length
+
+    const tip_x = root_x + branch_len * @cos(branch_angle);
+    const tip_y = root_y + branch_len * @sin(branch_angle);
+
     return .{
         .x1 = root_x,
         .y1 = root_y,
@@ -193,7 +203,7 @@ export fn frame() void {
 
     sgl.c3f(1.0, 0.0, 0.0);
     i = 0;
-    while (i < state.branch_segment_len + 1) : (i += 1) {
+    while (i < state.branch_segment_len) : (i += 1) {
         // Get branch points
         const bx1 = state.branch_segments[i].x1;
         const by1 = state.branch_segments[i].y1;
