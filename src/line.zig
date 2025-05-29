@@ -6,6 +6,7 @@ const sglue = sokol.glue;
 const sapp = sokol.app;
 const sgl = sokol.gl;
 const math = std.math;
+const shd = @import("shaders/line.glsl.zig");
 
 const per_frame_speed: f64 = 1;
 const max_segments: usize = 10; // Number of segments in the lightning bolt
@@ -36,11 +37,13 @@ const state = struct {
     var segments: [max_segments + 1]Segment = undefined;
     var branch_segments: [max_segments + 1]BranchSegment = undefined;
     var branch_segment_len: usize = 0;
+    var bind: sg.Bindings = .{};
     var dir: Direction = .FOR;
     var seed: u64 = 0;
     var time_since_regen: f32 = 0;
     var total_length: f32 = 5.0; // Total length of the lightning
     var rotation_angle: f32 = 0;
+    var pip: sg.Pipeline = .{};
 };
 
 fn branch_by_percentage(
@@ -156,16 +159,41 @@ export fn init() void {
     // Initialize random number generator with current time
     state.seed = @intCast(std.time.milliTimestamp());
 
+    // init vertex buffer
+    state.bind.vertex_buffers[0] = sg.makeBuffer(.{
+        .data = sg.asRange(&[_]f32{
+            // pos           color
+            // -1.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.5,
+            1.0,  -1.0, 0.0, 0.0, 1.0, 0.0, 0.5,
+            -1.0, 1.0,  0.0, 0.0, 0.0, 1.0, 0.5,
+            1.0,  1.0,  0.0, 1.0, 1.0, 0.0, 0.5,
+        }),
+    });
+
+    state.pip = sg.makePipeline(.{
+        .shader = sg.makeShader(shd.shapeShaderDesc(sg.queryBackend())),
+        .layout = init: {
+            var l = sg.VertexLayoutState{};
+            l.buffers[0].stride = 28;
+            l.attrs[shd.ATTR_shape_position].format = .FLOAT2;
+            break :init l;
+        },
+        .primitive_type = .TRIANGLE_STRIP,
+    });
+
     // Initialize the lightning bolt
     init_lightning();
 }
 
 export fn frame() void {
-    std.debug.print("branch segment len {d}\n", .{state.branch_segment_len});
     sg.beginPass(.{
         .action = state.pass_action,
         .swapchain = sglue.swapchain(),
     });
+
+    sg.applyPipeline(state.pip);
+    sg.applyBindings(state.bind);
+    sg.draw(1, 3, 1);
 
     const dt = sapp.frameDuration();
     tick(dt); // We don't use the input parameter
