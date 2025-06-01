@@ -7,6 +7,8 @@ const sapp = sokol.app;
 const sgl = sokol.gl;
 const math = std.math;
 const shd = @import("shaders/line.glsl.zig");
+const mat4 = @import("math.zig").Mat4;
+const vec3 = @import("math.zig").Vec3;
 
 const per_frame_speed: f64 = 1;
 const max_segments: usize = 10; // Number of segments in the lightning bolt
@@ -160,10 +162,12 @@ export fn init() void {
     state.seed = @intCast(std.time.milliTimestamp());
 
     // init vertex buffer
+    // Note that the pos used here are seen as percentage of the screen
+    // This means (-1.0, -1.0) = bottom left corner, (1.0, 1.0) is top right.
     state.bind.vertex_buffers[0] = sg.makeBuffer(.{
         .data = sg.asRange(&[_]f32{
             // pos           color
-            // -1.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.5,
+            -1.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.5,
             1.0,  -1.0, 0.0, 0.0, 1.0, 0.0, 0.5,
             -1.0, 1.0,  0.0, 0.0, 0.0, 1.0, 0.5,
             1.0,  1.0,  0.0, 1.0, 1.0, 0.0, 0.5,
@@ -191,12 +195,20 @@ export fn frame() void {
         .swapchain = sglue.swapchain(),
     });
 
-    sg.applyPipeline(state.pip);
-    sg.applyBindings(state.bind);
-    sg.draw(1, 3, 1);
-
     const dt = sapp.frameDuration();
     tick(dt); // We don't use the input parameter
+
+    // Calculate uniform transformation
+    // The output of which is a mvp matrix
+    // MVP = Projection * View * Model
+    const shape_vs_params = get_params(state.rotation_angle);
+
+    sg.applyPipeline(state.pip);
+    sg.applyBindings(state.bind);
+    sg.applyUniforms(shd.UB_shape_vs_params, sg.asRange(&shape_vs_params));
+    // base element here means the start index
+    // num_elements is the number of elements to draw, starting from the base element
+    sg.draw(1, 3, 1);
 
     sgl.defaults();
     sgl.beginLines();
@@ -252,6 +264,32 @@ export fn frame() void {
 
     sg.endPass();
     sg.commit();
+}
+
+fn get_params(angle: f64) shd.ShapeVsParams {
+    // Create projection matrix (perspective)
+    const proj = mat4.persp(90.0, sapp.widthf() / sapp.heightf(), 0.01, 100.0);
+
+    // Create view matrix (camera looking at origin from positive Z)
+    const view = mat4.lookat(.{ .x = 0.0, .y = 0.0, .z = 25.0 }, vec3.zero(), vec3.up());
+
+    // Combine projection and view matrices
+    const view_proj = mat4.mul(proj, view);
+
+    // Create model matrix with rotation and translation
+    // First rotate around Z-axis by the given angle (convert from f64 to f32)
+    const rotation_matrix = mat4.rotate(@floatCast(angle * 180.0 / math.pi), vec3.new(0.0, 0.0, 1.0));
+
+    // Then translate by 0.5 units away from center (along X-axis)
+    const translation_matrix = mat4.translate(vec3.new(0.5, 0.0, 0.0));
+
+    // Combine rotation and translation: first rotate, then translate
+    const model = mat4.mul(translation_matrix, rotation_matrix);
+
+    // Create final MVP matrix: MVP = Projection * View * Model
+    const mvp = mat4.mul(view_proj, model);
+
+    return shd.ShapeVsParams{ .mvp = mvp };
 }
 
 export fn cleanup() void {

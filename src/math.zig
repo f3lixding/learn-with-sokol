@@ -174,6 +174,8 @@ pub const Mat4 = extern struct {
     }
 };
 
+pub const Mat2 = extern struct {};
+
 test "Vec3.zero" {
     const v = Vec3.zero();
     assert(v.x == 0.0 and v.y == 0.0 and v.z == 0.0);

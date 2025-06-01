@@ -31,13 +31,13 @@ layout(binding=0) uniform quad_vs_params {
     mat4 mvp;
 };
 
-in vec4 position;
+in vec3 position;
 in vec4 color0;
 
 out vec4 color;
 
 void main() {
-    gl_Position = mvp * position;
+    gl_Position = mvp * vec4(position, 1.0);
     color = color0;
 }
 @end

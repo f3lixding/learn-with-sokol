@@ -1,7 +1,14 @@
+@header const m = @import("../math.zig")
+@ctype mat4 m.Mat4
+
 @vs vs_shape 
-in vec2 position;
+layout(binding=0) uniform shape_vs_params {
+  mat4 mvp;
+};
+
+in vec4 position;
 void main() {
-  gl_Position = vec4(position, 0.5, 1.0);
+  gl_Position = mvp * position;
 }
 @end
 
