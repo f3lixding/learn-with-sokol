@@ -208,7 +208,7 @@ export fn frame() void {
     sg.applyUniforms(shd.UB_shape_vs_params, sg.asRange(&shape_vs_params));
     // base element here means the start index
     // num_elements is the number of elements to draw, starting from the base element
-    sg.draw(1, 3, 1);
+    sg.draw(0, 4, 1);
 
     sgl.defaults();
     sgl.beginLines();
@@ -276,15 +276,21 @@ fn get_params(angle: f64) shd.ShapeVsParams {
     // Combine projection and view matrices
     const view_proj = mat4.mul(proj, view);
 
-    // Create model matrix with rotation and translation
-    // First rotate around Z-axis by the given angle (convert from f64 to f32)
+    // Create model matrix with translation and rotation for tidal locking
+    // Calculate world space equivalent of 0.5 in normalized device coordinates
+    // With camera at Z=25 and 90° FOV, visible width at Z=0 is ~50 units
+    // So 0.5 in NDC = 0.5 * 25 = 12.5 world units
+    const ndc_to_world_scale: f32 = 25.0; // Half the visible width at Z=0
+    const translation_distance = 0.5 * ndc_to_world_scale; // 12.5 world units
+    const translation_matrix = mat4.translate(vec3.new(0.0, translation_distance, 0.0));
+
+    // Then rotate around the origin (Z-axis) by the given angle (convert from f64 to f32)
+    // This creates orbital motion while keeping the object facing the same direction
     const rotation_matrix = mat4.rotate(@floatCast(angle * 180.0 / math.pi), vec3.new(0.0, 0.0, 1.0));
 
-    // Then translate by 0.5 units away from center (along X-axis)
-    const translation_matrix = mat4.translate(vec3.new(0.5, 0.0, 0.0));
-
-    // Combine rotation and translation: first rotate, then translate
-    const model = mat4.mul(translation_matrix, rotation_matrix);
+    // Combine translation and rotation: first translate, then rotate around origin
+    // This creates tidal locking - the object orbits while always facing the same direction
+    const model = mat4.mul(rotation_matrix, translation_matrix);
 
     // Create final MVP matrix: MVP = Projection * View * Model
     const mvp = mat4.mul(view_proj, model);
