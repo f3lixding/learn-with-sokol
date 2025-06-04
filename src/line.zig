@@ -45,6 +45,7 @@ const state = struct {
     var time_since_regen: f32 = 0;
     var total_length: f32 = 5.0; // Total length of the lightning
     var rotation_angle: f32 = 0;
+    var rolling_angle: f32 = 0;
     var pip: sg.Pipeline = .{};
 };
 
@@ -143,6 +144,14 @@ fn tick(dt: f64) void {
 
     // Update total rotation angle
     state.rotation_angle += @floatCast(radians);
+
+    // Calculate rolling based on orbital distance
+    // Cube circumference = 4 units (assuming unit cube), orbital radius = 12.5
+    // Rolling angle = orbital_distance / cube_radius
+    const cube_radius = 1.0; // Half the cube size
+    const orbital_radius = 12.5; // From get_params function
+    const orbital_distance = radians * orbital_radius;
+    state.rolling_angle += @floatCast(orbital_distance / cube_radius);
 }
 
 export fn init() void {
@@ -161,16 +170,52 @@ export fn init() void {
     // Initialize random number generator with current time
     state.seed = @intCast(std.time.milliTimestamp());
 
-    // init vertex buffer
-    // Note that the pos used here are seen as percentage of the screen
-    // This means (-1.0, -1.0) = bottom left corner, (1.0, 1.0) is top right.
+    // cube vertex buffer
     state.bind.vertex_buffers[0] = sg.makeBuffer(.{
         .data = sg.asRange(&[_]f32{
-            // pos           color
-            -1.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.5,
-            1.0,  -1.0, 0.0, 0.0, 1.0, 0.0, 0.5,
-            -1.0, 1.0,  0.0, 0.0, 0.0, 1.0, 0.5,
-            1.0,  1.0,  0.0, 1.0, 1.0, 0.0, 0.5,
+            // positions        colors
+            -1.0, -1.0, -1.0, 1.0, 0.0, 0.0, 1.0,
+            1.0,  -1.0, -1.0, 1.0, 0.0, 0.0, 1.0,
+            1.0,  1.0,  -1.0, 1.0, 0.0, 0.0, 1.0,
+            -1.0, 1.0,  -1.0, 1.0, 0.0, 0.0, 1.0,
+
+            -1.0, -1.0, 1.0,  0.0, 1.0, 0.0, 1.0,
+            1.0,  -1.0, 1.0,  0.0, 1.0, 0.0, 1.0,
+            1.0,  1.0,  1.0,  0.0, 1.0, 0.0, 1.0,
+            -1.0, 1.0,  1.0,  0.0, 1.0, 0.0, 1.0,
+
+            -1.0, -1.0, -1.0, 0.0, 0.0, 1.0, 1.0,
+            -1.0, 1.0,  -1.0, 0.0, 0.0, 1.0, 1.0,
+            -1.0, 1.0,  1.0,  0.0, 0.0, 1.0, 1.0,
+            -1.0, -1.0, 1.0,  0.0, 0.0, 1.0, 1.0,
+
+            1.0,  -1.0, -1.0, 1.0, 0.5, 0.0, 1.0,
+            1.0,  1.0,  -1.0, 1.0, 0.5, 0.0, 1.0,
+            1.0,  1.0,  1.0,  1.0, 0.5, 0.0, 1.0,
+            1.0,  -1.0, 1.0,  1.0, 0.5, 0.0, 1.0,
+
+            -1.0, -1.0, -1.0, 0.0, 0.5, 1.0, 1.0,
+            -1.0, -1.0, 1.0,  0.0, 0.5, 1.0, 1.0,
+            1.0,  -1.0, 1.0,  0.0, 0.5, 1.0, 1.0,
+            1.0,  -1.0, -1.0, 0.0, 0.5, 1.0, 1.0,
+
+            -1.0, 1.0,  -1.0, 1.0, 0.0, 0.5, 1.0,
+            -1.0, 1.0,  1.0,  1.0, 0.0, 0.5, 1.0,
+            1.0,  1.0,  1.0,  1.0, 0.0, 0.5, 1.0,
+            1.0,  1.0,  -1.0, 1.0, 0.0, 0.5, 1.0,
+        }),
+    });
+
+    // cube index buffer
+    state.bind.index_buffer = sg.makeBuffer(.{
+        .type = .INDEXBUFFER,
+        .data = sg.asRange(&[_]u16{
+            0,  1,  2,  0,  2,  3,
+            6,  5,  4,  7,  6,  4,
+            8,  9,  10, 8,  10, 11,
+            14, 13, 12, 15, 14, 12,
+            16, 17, 18, 16, 18, 19,
+            22, 21, 20, 23, 22, 20,
         }),
     });
 
@@ -178,11 +223,16 @@ export fn init() void {
         .shader = sg.makeShader(shd.shapeShaderDesc(sg.queryBackend())),
         .layout = init: {
             var l = sg.VertexLayoutState{};
-            l.buffers[0].stride = 28;
-            l.attrs[shd.ATTR_shape_position].format = .FLOAT2;
+            l.attrs[shd.ATTR_shape_position].format = .FLOAT3;
+            l.attrs[shd.ATTR_shape_color0].format = .FLOAT4;
             break :init l;
         },
-        .primitive_type = .TRIANGLE_STRIP,
+        .index_type = .UINT16,
+        .depth = .{
+            .compare = .LESS_EQUAL,
+            .write_enabled = true,
+        },
+        .cull_mode = .BACK,
     });
 
     // Initialize the lightning bolt
@@ -201,14 +251,13 @@ export fn frame() void {
     // Calculate uniform transformation
     // The output of which is a mvp matrix
     // MVP = Projection * View * Model
-    const shape_vs_params = get_params(state.rotation_angle);
+    const shape_vs_params = get_params(state.rotation_angle, state.rolling_angle);
 
     sg.applyPipeline(state.pip);
     sg.applyBindings(state.bind);
     sg.applyUniforms(shd.UB_shape_vs_params, sg.asRange(&shape_vs_params));
-    // base element here means the start index
-    // num_elements is the number of elements to draw, starting from the base element
-    sg.draw(0, 4, 1);
+    // Draw cube with 36 indices (6 faces * 2 triangles * 3 vertices each)
+    sg.draw(0, 36, 1);
 
     sgl.defaults();
     sgl.beginLines();
@@ -266,7 +315,7 @@ export fn frame() void {
     sg.commit();
 }
 
-fn get_params(angle: f64) shd.ShapeVsParams {
+fn get_params(angle: f64, rolling_angle: f32) shd.ShapeVsParams {
     // Create projection matrix (perspective)
     const proj = mat4.persp(90.0, sapp.widthf() / sapp.heightf(), 0.01, 100.0);
 
@@ -276,7 +325,7 @@ fn get_params(angle: f64) shd.ShapeVsParams {
     // Combine projection and view matrices
     const view_proj = mat4.mul(proj, view);
 
-    // Create model matrix with translation and rotation for tidal locking
+    // Create model matrix with translation, orbital rotation, and rolling rotation
     // Calculate world space equivalent of 0.5 in normalized device coordinates
     // With camera at Z=25 and 90° FOV, visible width at Z=0 is ~50 units
     // So 0.5 in NDC = 0.5 * 25 = 12.5 world units
@@ -284,13 +333,18 @@ fn get_params(angle: f64) shd.ShapeVsParams {
     const translation_distance = 0.5 * ndc_to_world_scale; // 12.5 world units
     const translation_matrix = mat4.translate(vec3.new(0.0, translation_distance, 0.0));
 
-    // Then rotate around the origin (Z-axis) by the given angle (convert from f64 to f32)
-    // This creates orbital motion while keeping the object facing the same direction
-    const rotation_matrix = mat4.rotate(@floatCast(angle * 180.0 / math.pi), vec3.new(0.0, 0.0, 1.0));
+    // Rolling rotation around Z-axis (around the imaginary rod to center)
+    const rolling_matrix = mat4.rotate(rolling_angle * 180.0 / math.pi, vec3.new(0.0, 1.0, 0.0));
 
-    // Combine translation and rotation: first translate, then rotate around origin
-    // This creates tidal locking - the object orbits while always facing the same direction
-    const model = mat4.mul(rotation_matrix, translation_matrix);
+    // Combine translation and rolling: first translate, then apply rolling
+    const translated_and_rolled = mat4.mul(rolling_matrix, translation_matrix);
+
+    // Then rotate around the origin (Z-axis) by the given angle (convert from f64 to f32)
+    // This creates orbital motion with rolling
+    const orbital_rotation_matrix = mat4.rotate(@floatCast(angle * 180.0 / math.pi), vec3.new(0.0, 0.0, 1.0));
+
+    // Combine orbital rotation with the translated and rolled cube
+    const model = mat4.mul(orbital_rotation_matrix, translated_and_rolled);
 
     // Create final MVP matrix: MVP = Projection * View * Model
     const mvp = mat4.mul(view_proj, model);
