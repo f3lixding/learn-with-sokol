@@ -12,6 +12,7 @@ const Bin = struct {
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const no_bin = b.option(bool, "no-bin", "skip emitting binary") orelse false;
 
     const sokol_dep = b.dependency("sokol", .{
         .target = target,
@@ -25,16 +26,26 @@ pub fn build(b: *std.Build) void {
         if (std.mem.eql(u8, ".zig", std.fs.path.extension(file.path))) {
             const name = std.fs.path.stem(file.basename);
             const path = b.path(b.fmt("src/{s}", .{file.path}));
+            if (std.mem.startsWith(u8, file.path, "shaders/") or std.mem.eql(u8, name, "math")) {
+                continue;
+            }
             build_bin(b, .{
                 .name = name,
                 .path = path,
-            }, sokol_dep, target, optimize);
+            }, sokol_dep, target, optimize, no_bin);
         }
     }
 }
 
 /// This also constructs the run step for said bin
-pub fn build_bin(b: *Build, bin: Bin, sd: *Build.Dependency, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
+pub fn build_bin(
+    b: *Build,
+    bin: Bin,
+    sd: *Build.Dependency,
+    target: Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    no_bin: bool,
+) void {
     const bin_to_add = b.addExecutable(.{
         .name = bin.name,
         .target = target,
@@ -45,8 +56,26 @@ pub fn build_bin(b: *Build, bin: Bin, sd: *Build.Dependency, target: Build.Resol
     const selective_install = b.addInstallArtifact(bin_to_add, .{});
     const run = b.addRunArtifact(bin_to_add);
 
-    b.installArtifact(bin_to_add);
+    // Overall installs
+    if (no_bin) {
+        b.getInstallStep().dependOn(&bin_to_add.step);
+    } else {
+        b.installArtifact(bin_to_add);
+    }
 
-    b.step(b.fmt("run-{s}", .{bin.name}), b.fmt("run {s}", .{bin.name})).dependOn(&run.step);
-    b.step(b.fmt("build-{s}", .{bin.name}), b.fmt("build {s}", .{bin.name})).dependOn(&selective_install.step);
+    b.step(
+        b.fmt("run-{s}", .{bin.name}),
+        b.fmt("run {s}", .{bin.name}),
+    ).dependOn(&run.step);
+    const build_step = b.step(
+        b.fmt("build-{s}", .{bin.name}),
+        b.fmt("build {s}", .{bin.name}),
+    );
+    if (no_bin) {
+        // Note that *Compile step is enough to run check
+        // (You don't need install for checking)
+        build_step.dependOn(&bin_to_add.step);
+    } else {
+        build_step.dependOn(&selective_install.step);
+    }
 }

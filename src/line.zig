@@ -334,7 +334,7 @@ fn get_params(angle: f64, rolling_angle: f32) shd.ShapeVsParams {
     const translation_matrix = mat4.translate(vec3.new(0.0, translation_distance, 0.0));
 
     // Rolling rotation around Z-axis (around the imaginary rod to center)
-    const rolling_matrix = mat4.rotate(rolling_angle * 180.0 / math.pi, vec3.new(0.0, 1.0, 0.0));
+    const rolling_matrix = mat4.rotate(-0.5 * rolling_angle * 180.0 / math.pi, vec3.new(0.0, 1.0, 0.0));
 
     // Combine translation and rolling: first translate, then apply rolling
     const translated_and_rolled = mat4.mul(rolling_matrix, translation_matrix);
