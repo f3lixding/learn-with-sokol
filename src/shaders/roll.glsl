@@ -16,9 +16,19 @@ in vec2 uv;
 out vec4 frag_color;
 
 void main() {
-  vec2 grid = abs(fract(uv * 20.0) - 0.5);
-  float line = smoothstep(0.0, 0.05, min(grid.x, grid.y));
-  vec3 color = mix(vec3(0.8), vec3(0.2), line);
+  // Map UV to grid coordinates (0 to 4)
+  vec2 grid_coord = uv * 5.0;
+  
+  // Get fractional part for each cell (0 to 1 within each cell)
+  vec2 cell_uv = fract(grid_coord);
+  
+  // Distance from cell edges (0 at edges, 0.5 at center)
+  vec2 dist_from_edge = min(cell_uv, 1.0 - cell_uv);
+  
+  // Create grid lines
+  float line = smoothstep(0.0, 0.02, min(dist_from_edge.x, dist_from_edge.y));
+  
+  vec3 color = mix(vec3(0.2), vec3(0.8), line);
   frag_color = vec4(color, 1.0);
 }
 @end

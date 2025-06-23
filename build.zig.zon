@@ -37,8 +37,12 @@
     // internet connectivity.
     .dependencies = .{
         .sokol = .{
-            .url = "git+https://github.com/floooh/sokol-zig.git#9300d1a8d6d16f9201782ceae0cdf874fea673fe",
-            .hash = "sokol-0.1.0-pb1HK_6OLAAsKv0vZ-lhJSTgj0At1Dpd7NrAc9zRGdCy",
+            .url = "git+https://github.com/floooh/sokol-zig.git#d41da3bc951a15466968ecdc2152efa5d2f0f107",
+            .hash = "sokol-0.1.0-pb1HKwaCLQBSQG4RPJ0YjE6tYhkSIPTotgioIpOIo8Zr",
+        },
+        .zigimg = .{
+            .url = "git+https://github.com/zigimg/zigimg.git#6b9ddc1e94cd80183a2d4a8403cc60c8d2ef0d2a",
+            .hash = "zigimg-0.1.0-8_eo2gimEgBDuZcXm0MsbNDjkzRDk-lWSPrUa_bLf0IC",
         },
     },
     .paths = .{

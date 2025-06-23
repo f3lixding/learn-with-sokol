@@ -20,6 +20,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const zigimg_dep = b.dependency("zigimg", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const src_dir = std.fs.cwd().openDir("src", .{ .iterate = true }) catch unreachable;
     var walker = src_dir.walk(b.allocator) catch unreachable;
     var shader_dir = src_dir.openDir("shaders", .{}) catch unreachable;
@@ -38,6 +43,7 @@ pub fn build(b: *std.Build) void {
                     .path = path,
                 },
                 sokol_dep,
+                zigimg_dep,
                 target,
                 optimize,
                 &shader_dir,
@@ -52,6 +58,7 @@ pub fn build_bin(
     b: *Build,
     bin: Bin,
     sd: *Build.Dependency,
+    imgd: *Build.Dependency,
     target: Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     shader_dir: *std.fs.Dir,
@@ -87,6 +94,7 @@ pub fn build_bin(
     }
 
     bin_to_add.root_module.addImport("sokol", sd.module("sokol"));
+    bin_to_add.root_module.addImport("zigimg", imgd.module("zigimg"));
     const selective_install = b.addInstallArtifact(bin_to_add, .{});
     const run = b.addRunArtifact(bin_to_add);
 
