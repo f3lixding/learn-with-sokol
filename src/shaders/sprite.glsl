@@ -22,7 +22,7 @@ out vec2 uv;
 void main() {
     gl_Position = mvp * pos;
     color = color0;
-    uv = texcoord0 * 2.0;
+    uv = texcoord0 * 1.0;
 }
 #pragma sokol @end
 

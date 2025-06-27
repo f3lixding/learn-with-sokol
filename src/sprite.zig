@@ -20,11 +20,30 @@ const state = struct {
     var pass_action: sg.PassAction = .{};
     var pip: sg.Pipeline = .{};
     var bind: sg.Bindings = .{};
+    const sprite_frames: [4]SpriteFrame = [_]SpriteFrame{
+        .{ .u_min = 0.0, .v_min = 0.0, .u_max = 0.5, .v_max = 0.5 },
+        .{ .u_min = 0.0, .v_min = 0.5, .u_max = 0.5, .v_max = 1.0 },
+        .{ .u_min = 0.5, .v_min = 0.5, .u_max = 1.0, .v_max = 1.0 },
+        .{ .u_min = 0.5, .v_min = 0.0, .u_max = 1.0, .v_max = 1.0 },
+    };
+    var current_frame: usize = 0;
+    var last_switch_timestamp: f128 = 0.0;
+    var current_time: f128 = 0.0;
     const view: mat4 = mat4.lookat(.{ .x = 0.0, .y = 1.5, .z = 6.0 }, vec3.zero(), vec3.up());
 };
 
 // a vertex struct with position, color and uv-coords
-const Vertex = extern struct { x: f32, y: f32, z: f32, color: u32, u: f32, v: f32 };
+const Vertex = struct { x: f32, y: f32, z: f32, color: u32, u: f32, v: f32 };
+
+// This is what we would use if the sprite sheet is to be separated
+// into different parts (where each quadrant is to be referred to as
+// sprite frame)
+const SpriteFrame = struct {
+    u_min: f32,
+    v_min: f32, // top-left UV
+    u_max: f32,
+    v_max: f32, // bottom-right UV
+};
 
 export fn init() void {
     sg.setup(.{
@@ -46,47 +65,9 @@ export fn init() void {
     // The reason is that D3D11 cannot convert from non-normalized
     // formats to floating point inputs (only to integer inputs),
     // and WebGL2 / GLES2 don't support integer vertex shader inputs.
-    //
     state.bind.vertex_buffers[0] = sg.makeBuffer(.{
-        .data = sg.asRange(&[_]Vertex{
-            // zig fmt: off
-            // Front face
-            .{ .x = -1.0, .y = -1.0, .z = -1.0, .color = 0xFF0000FF, .u = 0.0, .v = 1.0 },
-            .{ .x =  1.0, .y = -1.0, .z = -1.0, .color = 0xFF0000FF, .u = 1.0, .v = 1.0 },
-            .{ .x =  1.0, .y =  1.0, .z = -1.0, .color = 0xFF0000FF, .u = 1.0, .v = 0.0 },
-            .{ .x = -1.0, .y =  1.0, .z = -1.0, .color = 0xFF0000FF, .u = 0.0, .v = 0.0 },
-
-            // Back face
-            .{ .x = -1.0, .y = -1.0, .z =  1.0, .color = 0xFF00FF00, .u = 1.0, .v = 1.0 },
-            .{ .x =  1.0, .y = -1.0, .z =  1.0, .color = 0xFF00FF00, .u = 0.0, .v = 1.0 },
-            .{ .x =  1.0, .y =  1.0, .z =  1.0, .color = 0xFF00FF00, .u = 0.0, .v = 0.0 },
-            .{ .x = -1.0, .y =  1.0, .z =  1.0, .color = 0xFF00FF00, .u = 1.0, .v = 0.0 },
-
-            // Left face
-            .{ .x = -1.0, .y = -1.0, .z = -1.0, .color = 0xFFFF0000, .u = 1.0, .v = 1.0 },
-            .{ .x = -1.0, .y =  1.0, .z = -1.0, .color = 0xFFFF0000, .u = 1.0, .v = 0.0 },
-            .{ .x = -1.0, .y =  1.0, .z =  1.0, .color = 0xFFFF0000, .u = 0.0, .v = 0.0 },
-            .{ .x = -1.0, .y = -1.0, .z =  1.0, .color = 0xFFFF0000, .u = 0.0, .v = 1.0 },
-
-            // Right face
-            .{ .x =  1.0, .y = -1.0, .z = -1.0, .color = 0xFFFF007F, .u = 0.0, .v = 1.0 },
-            .{ .x =  1.0, .y =  1.0, .z = -1.0, .color = 0xFFFF007F, .u = 0.0, .v = 0.0 },
-            .{ .x =  1.0, .y =  1.0, .z =  1.0, .color = 0xFFFF007F, .u = 1.0, .v = 0.0 },
-            .{ .x =  1.0, .y = -1.0, .z =  1.0, .color = 0xFFFF007F, .u = 1.0, .v = 1.0 },
-
-            // Bottom face
-            .{ .x = -1.0, .y = -1.0, .z = -1.0, .color = 0xFFFF7F00, .u = 0.0, .v = 0.0 },
-            .{ .x = -1.0, .y = -1.0, .z =  1.0, .color = 0xFFFF7F00, .u = 0.0, .v = 1.0 },
-            .{ .x =  1.0, .y = -1.0, .z =  1.0, .color = 0xFFFF7F00, .u = 1.0, .v = 1.0 },
-            .{ .x =  1.0, .y = -1.0, .z = -1.0, .color = 0xFFFF7F00, .u = 1.0, .v = 0.0 },
-
-            // Top face
-            .{ .x = -1.0, .y =  1.0, .z = -1.0, .color = 0xFF007FFF, .u = 0.0, .v = 1.0 },
-            .{ .x = -1.0, .y =  1.0, .z =  1.0, .color = 0xFF007FFF, .u = 0.0, .v = 0.0 },
-            .{ .x =  1.0, .y =  1.0, .z =  1.0, .color = 0xFF007FFF, .u = 1.0, .v = 0.0 },
-            .{ .x =  1.0, .y =  1.0, .z = -1.0, .color = 0xFF007FFF, .u = 1.0, .v = 1.0 },
-            // zig fmt: on
-        }),
+        .usage = .{ .dynamic_update = true },
+        .size = 24 * @sizeOf(Vertex),
     });
 
     // cube index buffer
@@ -141,12 +122,64 @@ export fn init() void {
     };
 }
 
+fn updateVertexUVs(sprite_frame: SpriteFrame) void {
+    // Update vertex buffer with new UV coord
+    const vertices = [_]Vertex{
+        // zig fmt: off
+        // Front face
+        .{ .x = -1.0, .y = -1.0, .z = -1.0, .color = 0xFF0000FF, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
+        .{ .x =  1.0, .y = -1.0, .z = -1.0, .color = 0xFF0000FF, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
+        .{ .x =  1.0, .y =  1.0, .z = -1.0, .color = 0xFF0000FF, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
+        .{ .x = -1.0, .y =  1.0, .z = -1.0, .color = 0xFF0000FF, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
+
+        // Back face
+        .{ .x = -1.0, .y = -1.0, .z =  1.0, .color = 0xFF00FF00, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
+        .{ .x =  1.0, .y = -1.0, .z =  1.0, .color = 0xFF00FF00, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
+        .{ .x =  1.0, .y =  1.0, .z =  1.0, .color = 0xFF00FF00, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
+        .{ .x = -1.0, .y =  1.0, .z =  1.0, .color = 0xFF00FF00, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
+
+        // Left face
+        .{ .x = -1.0, .y = -1.0, .z = -1.0, .color = 0xFFFF0000, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
+        .{ .x = -1.0, .y =  1.0, .z = -1.0, .color = 0xFFFF0000, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
+        .{ .x = -1.0, .y =  1.0, .z =  1.0, .color = 0xFFFF0000, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
+        .{ .x = -1.0, .y = -1.0, .z =  1.0, .color = 0xFFFF0000, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
+
+        // Right face
+        .{ .x =  1.0, .y = -1.0, .z = -1.0, .color = 0xFFFF007F, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
+        .{ .x =  1.0, .y =  1.0, .z = -1.0, .color = 0xFFFF007F, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
+        .{ .x =  1.0, .y =  1.0, .z =  1.0, .color = 0xFFFF007F, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
+        .{ .x =  1.0, .y = -1.0, .z =  1.0, .color = 0xFFFF007F, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
+
+        // Bottom face
+        .{ .x = -1.0, .y = -1.0, .z = -1.0, .color = 0xFFFF7F00, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
+        .{ .x = -1.0, .y = -1.0, .z =  1.0, .color = 0xFFFF7F00, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
+        .{ .x =  1.0, .y = -1.0, .z =  1.0, .color = 0xFFFF7F00, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
+        .{ .x =  1.0, .y = -1.0, .z = -1.0, .color = 0xFFFF7F00, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
+
+        // Top face
+        .{ .x = -1.0, .y =  1.0, .z = -1.0, .color = 0xFF007FFF, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
+        .{ .x = -1.0, .y =  1.0, .z =  1.0, .color = 0xFF007FFF, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
+        .{ .x =  1.0, .y =  1.0, .z =  1.0, .color = 0xFF007FFF, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
+        .{ .x =  1.0, .y =  1.0, .z = -1.0, .color = 0xFF007FFF, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
+        // zig fmt: on
+    };
+
+    sg.updateBuffer(state.bind.vertex_buffers[0], sg.asRange(&vertices));
+}
+
 export fn frame() void {
     const dt: f32 = @floatCast(sapp.frameDuration() * 60);
+    state.current_time += dt;
+    if (state.current_time - state.last_switch_timestamp > 100) {
+        state.current_frame = (state.current_frame + 1) % 4;
+        state.last_switch_timestamp = state.current_time;
+    }
 
     state.rx += 1.0 * dt;
     state.ry += 2.0 * dt;
     const vs_params = computeVsParams(state.rx, state.ry);
+
+    updateVertexUVs(state.sprite_frames[state.current_frame]);
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pip);
