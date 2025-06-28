@@ -170,7 +170,7 @@ fn updateVertexUVs(sprite_frame: SpriteFrame) void {
 export fn frame() void {
     const dt: f32 = @floatCast(sapp.frameDuration() * 60);
     state.current_time += dt;
-    if (state.current_time - state.last_switch_timestamp > 100) {
+    if (state.current_time - state.last_switch_timestamp > 300) {
         state.current_frame = (state.current_frame + 1) % 4;
         state.last_switch_timestamp = state.current_time;
     }
