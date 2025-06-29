@@ -22,6 +22,28 @@ const FrameMetadata = struct {
     y: i32,
     width: i32,
     height: i32,
+
+    pub fn toSpriteFrame(self: @This(), image_u: usize, image_v: usize) SpriteFrame {
+        // Need to first normalize this
+        const image_u_float: f32 = @floatFromInt(image_u);
+        const image_v_float: f32 = @floatFromInt(image_v);
+        const x_float: f32 = @floatFromInt(self.x);
+        const y_float: f32 = @floatFromInt(self.y);
+        const width_float: f32 = @floatFromInt(self.width);
+        const height_float: f32 = @floatFromInt(self.height);
+
+        const u_min: f32 = x_float / image_u_float;
+        const v_min: f32 = y_float / image_v_float;
+        const u_max: f32 = (x_float + width_float) / image_u_float;
+        const v_max: f32 = (y_float + height_float) / image_v_float;
+
+        return .{
+            .u_min = u_min,
+            .v_min = v_min,
+            .u_max = u_max,
+            .v_max = v_max,
+        };
+    }
 };
 
 const SpriteFrame = struct {
@@ -40,32 +62,44 @@ const Vertex = struct {
 };
 
 const state = struct {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator: Allocator = undefined;
     var x: f32 = 0.0;
     var y: f32 = 0.0;
     var pip: sg.Pipeline = .{};
     var bind: sg.Bindings = .{};
     var pass_action: sg.PassAction = .{};
-    const sprite_frames = [_]SpriteFrame{
-        .{ .u_min = 0.0, .v_min = 0.0, .u_max = 1.0, .v_max = 1.0 },
-        .{ .u_min = 0.0, .v_min = 0.5, .u_max = 0.5, .v_max = 1.0 },
-        .{ .u_min = 0.5, .v_min = 0.5, .u_max = 1.0, .v_max = 1.0 },
-        .{ .u_min = 0.5, .v_min = 0.0, .u_max = 1.0, .v_max = 1.0 },
-    };
+    var sprite_frames: []SpriteFrame = undefined;
     // How often the sprite cycles happens
-    const frame_threshold: usize = 10;
+    const frame_threshold: u64 = 5;
     // Current sprite frame, used to index [sprite_frames]
     var current_sframe: usize = 0;
-    var frame_counter: usize = 0;
+    var last_switched_frame: u64 = 0;
+
+    pub fn deinit() void {
+        state.allocator.free(sprite_frames);
+        _ = state.gpa.deinit();
+    }
+
+    pub fn updateFrames() void {
+        const current_frame = sapp.frameCount();
+        const diff = current_frame - state.last_switched_frame;
+        const total_sframes: u64 = @intCast(state.sprite_frames.len);
+        if (diff >= state.frame_threshold) {
+            state.last_switched_frame = current_frame;
+            state.current_sframe = (state.current_sframe + 1) % total_sframes;
+        }
+    }
 };
 
 fn updateVertexUVs(sprite_frame: SpriteFrame) void {
     // This represents the four corners of a sprite
     const vertices = [_]Vertex{
         // zig fmt: off
-        .{ .x = -1.0, .y = -1.0, .color = 0xFF0000FF, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
-        .{ .x = -1.0, .y =  1.0, .color = 0xFF0000FF, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
-        .{ .x =  1.0, .y =  1.0, .color = 0xFF0000FF, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
-        .{ .x =  1.0, .y = -1.0, .color = 0xFF0000FF, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
+        .{ .x = -1.0, .y = -1.0, .color = 0xFFFFFFFF, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
+        .{ .x = -1.0, .y =  1.0, .color = 0xFFFFFFFF, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
+        .{ .x =  1.0, .y =  1.0, .color = 0xFFFFFFFF, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
+        .{ .x =  1.0, .y = -1.0, .color = 0xFFFFFFFF, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
         // zig fmt: on
     };
     sg.updateBuffer(state.bind.vertex_buffers[0], sg.asRange(&vertices));
@@ -73,7 +107,7 @@ fn updateVertexUVs(sprite_frame: SpriteFrame) void {
 
 fn initSpriteFrames(allocator: Allocator, sprite_frames: *[]FrameMetadata) !void {
     // read metadata
-    const metadata_file = try std.fs.cwd().openFile("assets/googly_eyes.json", .{});
+    const metadata_file = try std.fs.cwd().openFile("assets/captain.json", .{});
     var contents = std.ArrayList(u8).init(allocator);
     defer contents.deinit();
     var buffer: [1024]u8 = undefined;
@@ -104,26 +138,38 @@ fn initSpriteFrames(allocator: Allocator, sprite_frames: *[]FrameMetadata) !void
     sprite_frames.* = try copy_dst.toOwnedSlice();
 }
 
+fn getSpriteFramesFromMetadata(allocator: Allocator, metadata: []FrameMetadata, width: usize, height: usize) ![]SpriteFrame {
+    var res = std.ArrayList(SpriteFrame).init(allocator);
+    for (metadata) |data| {
+        try res.append(data.toSpriteFrame(width, height));
+    }
+    
+    return try res.toOwnedSlice();
+}
+
 export fn init() void {
     sg.setup(.{
         .environment = sglue.environment(),
         .logger = .{ .func = slog.func },
     });
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-    var image = zigimg.Image.fromFilePath(allocator, "assets/googly_eyes.png") catch unreachable;
+    const allocator = state.gpa.allocator();
+    var image = zigimg.Image.fromFilePath(allocator, "assets/captain.png") catch unreachable;
     defer image.deinit();
+    state.allocator = allocator;
 
     var sprite_frames: []FrameMetadata = undefined;
-    initSpriteFrames(allocator, &sprite_frames) catch unreachable;
-    std.debug.print("Number of frames: {d}\n", .{sprite_frames.len});
-    for (sprite_frames) |sprite_frame| {
-        const name = sprite_frame.name;
-        const height = sprite_frame.height;
-        std.debug.print("name: {s}, height: {d}\n", .{name, height});
+    defer {
+        for (sprite_frames) |sprite_frame| {
+            allocator.free(sprite_frame.name);
+        }
+        allocator.free(sprite_frames);
     }
+
+    initSpriteFrames(allocator, &sprite_frames) catch unreachable;
+
+    // convert metadata to actual sprite frames and populate state with it
+    state.sprite_frames = getSpriteFramesFromMetadata(allocator, sprite_frames, image.width, image.height) catch unreachable;
 
     state.bind.vertex_buffers[0] = sg.makeBuffer(.{
         .usage = .{ .dynamic_update = true},
@@ -173,6 +219,7 @@ export fn init() void {
 }
 
 export fn frame() void {
+    state.updateFrames();
     updateVertexUVs(state.sprite_frames[state.current_sframe]);
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
@@ -184,6 +231,7 @@ export fn frame() void {
 }
 
 export fn cleanup() void {
+    state.deinit();
     sg.shutdown();
 }
 
