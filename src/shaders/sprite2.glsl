@@ -12,7 +12,7 @@ void main() {
   // w should be 1.0 for proper 2D rendering
   gl_Position = vec4(pos, 0.0, 1.0);
   color = color0;
-  uv = uv0;
+  uv = vec2(uv0.x, 1.0 - uv0.y);
 }
 @end
 

@@ -1,18 +1,28 @@
 // This is a simplified version of sprite.zig
 // It strips away the portion that has to do with the rendering of the cube.
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const sokol = @import("sokol");
 const sg = sokol.gfx;
 const sapp = sokol.app;
 const slog = sokol.log;
 const sglue = sokol.glue;
 const zigimg = @import("zigimg");
+
 const shd = @import("shaders/sprite2.glsl.zig");
 
 const WINDOW_WIDTH: i32 = 800;
 const WINDOW_HEIGHT: i32 = 600;
 const SAMPLE_COUNT: i32 = 4;
 const WINDOW_TITLE: []const u8 = "sprite_two";
+
+const FrameMetadata = struct {
+    name: []const u8,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+};
 
 const SpriteFrame = struct {
     u_min: f32,
@@ -61,6 +71,39 @@ fn updateVertexUVs(sprite_frame: SpriteFrame) void {
     sg.updateBuffer(state.bind.vertex_buffers[0], sg.asRange(&vertices));
 }
 
+fn initSpriteFrames(allocator: Allocator, sprite_frames: *[]FrameMetadata) !void {
+    // read metadata
+    const metadata_file = try std.fs.cwd().openFile("assets/googly_eyes.json", .{});
+    var contents = std.ArrayList(u8).init(allocator);
+    defer contents.deinit();
+    var buffer: [1024]u8 = undefined;
+    while (true) {
+        const size = try metadata_file.read(&buffer);
+        try contents.appendSlice(buffer[0..size]);
+        if (size == 0) {
+            break;
+        }
+    }
+
+    const slice = try contents.toOwnedSlice();
+    defer allocator.free(slice);
+    // deserialize from json
+    const parsed = try std.json.parseFromSlice([]FrameMetadata, allocator, slice, .{});
+    defer parsed.deinit();
+    const frame_mds = parsed.value;
+    var copy_dst = std.ArrayList(FrameMetadata).init(allocator);
+    for (frame_mds) |frame_md| {
+        try copy_dst.append(.{
+            .name = try allocator.dupe(u8, frame_md.name),
+            .x = frame_md.x,
+            .y = frame_md.y,
+            .width = frame_md.width,
+            .height = frame_md.height,
+        });
+    }
+    sprite_frames.* = try copy_dst.toOwnedSlice();
+}
+
 export fn init() void {
     sg.setup(.{
         .environment = sglue.environment(),
@@ -70,8 +113,17 @@ export fn init() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var image = zigimg.Image.fromFilePath(allocator, "assets/sprite.png") catch unreachable;
+    var image = zigimg.Image.fromFilePath(allocator, "assets/googly_eyes.png") catch unreachable;
     defer image.deinit();
+
+    var sprite_frames: []FrameMetadata = undefined;
+    initSpriteFrames(allocator, &sprite_frames) catch unreachable;
+    std.debug.print("Number of frames: {d}\n", .{sprite_frames.len});
+    for (sprite_frames) |sprite_frame| {
+        const name = sprite_frame.name;
+        const height = sprite_frame.height;
+        std.debug.print("name: {s}, height: {d}\n", .{name, height});
+    }
 
     state.bind.vertex_buffers[0] = sg.makeBuffer(.{
         .usage = .{ .dynamic_update = true},
