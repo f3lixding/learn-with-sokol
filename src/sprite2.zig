@@ -71,7 +71,7 @@ const state = struct {
     var pass_action: sg.PassAction = .{};
     var sprite_frames: []SpriteFrame = undefined;
     // How often the sprite cycles happens
-    const frame_threshold: u64 = 5;
+    const frame_threshold: u64 = 3;
     // Current sprite frame, used to index [sprite_frames]
     var current_sframe: usize = 0;
     var last_switched_frame: u64 = 0;
@@ -107,7 +107,7 @@ fn updateVertexUVs(sprite_frame: SpriteFrame) void {
 
 fn initSpriteFrames(allocator: Allocator, sprite_frames: *[]FrameMetadata) !void {
     // read metadata
-    const metadata_file = try std.fs.cwd().openFile("assets/captain.json", .{});
+    const metadata_file = try std.fs.cwd().openFile("assets/redhood.json", .{});
     var contents = std.ArrayList(u8).init(allocator);
     defer contents.deinit();
     var buffer: [1024]u8 = undefined;
@@ -154,7 +154,7 @@ export fn init() void {
     });
 
     const allocator = state.gpa.allocator();
-    var image = zigimg.Image.fromFilePath(allocator, "assets/captain.png") catch unreachable;
+    var image = zigimg.Image.fromFilePath(allocator, "assets/redhood.png") catch unreachable;
     defer image.deinit();
     state.allocator = allocator;
 
