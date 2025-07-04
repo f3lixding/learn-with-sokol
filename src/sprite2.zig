@@ -53,6 +53,11 @@ const SpriteFrame = struct {
     v_max: f32,
 };
 
+const Position = struct {
+    x: f32,
+    y: f32,
+};
+
 const Vertex = struct {
     x: f32,
     y: f32,
@@ -71,10 +76,14 @@ const state = struct {
     var pass_action: sg.PassAction = .{};
     var sprite_frames: []SpriteFrame = undefined;
     // How often the sprite cycles happens
-    const frame_threshold: u64 = 3;
+    const frame_threshold: u64 = 30;
     // Current sprite frame, used to index [sprite_frames]
     var current_sframe: usize = 0;
     var last_switched_frame: u64 = 0;
+    var lerp_progress: f32 = 0.0;
+    // Position keyframes for character movement
+    var current_pos: Position = .{ .x = -0.5, .y = 0.0 };
+    var next_pos: Position = .{ .x = 0.5, .y = 0.0 };
 
     pub fn deinit() void {
         state.allocator.free(sprite_frames);
@@ -85,21 +94,33 @@ const state = struct {
         const current_frame = sapp.frameCount();
         const diff = current_frame - state.last_switched_frame;
         const total_sframes: u64 = @intCast(state.sprite_frames.len);
+        
+        state.lerp_progress = @as(f32, @floatFromInt(diff)) / @as(f32, @floatFromInt(state.frame_threshold));
+        
         if (diff >= state.frame_threshold) {
             state.last_switched_frame = current_frame;
             state.current_sframe = (state.current_sframe + 1) % total_sframes;
+            // Update position keyframes - alternate between left and right
+            const temp_pos = state.current_pos;
+            state.current_pos = state.next_pos;
+            state.next_pos = temp_pos;
+            state.lerp_progress = 0.0;
         }
     }
 };
 
-fn updateVertexUVs(sprite_frame: SpriteFrame) void {
-    // This represents the four corners of a sprite
+fn lerp(a: f32, b: f32, t: f32) f32 {
+    return a + t * (b - a);
+}
+
+fn updateVertexUVs(sprite_frame: SpriteFrame, pos_x: f32, pos_y: f32) void {
+    // This represents the four corners of a sprite with interpolated position
     const vertices = [_]Vertex{
         // zig fmt: off
-        .{ .x = -1.0, .y = -1.0, .color = 0xFFFFFFFF, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
-        .{ .x = -1.0, .y =  1.0, .color = 0xFFFFFFFF, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
-        .{ .x =  1.0, .y =  1.0, .color = 0xFFFFFFFF, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
-        .{ .x =  1.0, .y = -1.0, .color = 0xFFFFFFFF, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
+        .{ .x = -0.2 + pos_x, .y = -0.2 + pos_y, .color = 0xFFFFFFFF, .u = sprite_frame.u_min, .v = sprite_frame.v_min },
+        .{ .x = -0.2 + pos_x, .y =  0.2 + pos_y, .color = 0xFFFFFFFF, .u = sprite_frame.u_min, .v = sprite_frame.v_max },
+        .{ .x =  0.2 + pos_x, .y =  0.2 + pos_y, .color = 0xFFFFFFFF, .u = sprite_frame.u_max, .v = sprite_frame.v_max },
+        .{ .x =  0.2 + pos_x, .y = -0.2 + pos_y, .color = 0xFFFFFFFF, .u = sprite_frame.u_max, .v = sprite_frame.v_min },
         // zig fmt: on
     };
     sg.updateBuffer(state.bind.vertex_buffers[0], sg.asRange(&vertices));
@@ -210,6 +231,19 @@ export fn init() void {
             .write_enabled = true,
         },
         .cull_mode = .BACK,
+        .colors = init: {
+            var colors: [4]sg.ColorTargetState = undefined;
+            var color = sg.ColorTargetState{};
+            color.blend = .{
+                .enabled = true,
+                .src_factor_rgb = .SRC_ALPHA,
+                .dst_factor_rgb = .ONE_MINUS_SRC_ALPHA, 
+                .src_factor_alpha = .ONE,
+                .dst_factor_alpha = .ONE_MINUS_SRC_ALPHA,
+            };
+            colors[0] = color;
+            break :init colors;
+        },
     });
 
     state.pass_action.colors[0] = .{
@@ -220,7 +254,12 @@ export fn init() void {
 
 export fn frame() void {
     state.updateFrames();
-    updateVertexUVs(state.sprite_frames[state.current_sframe]);
+    
+    // Interpolate position between keyframes
+    const interp_x = lerp(state.current_pos.x, state.next_pos.x, state.lerp_progress);
+    const interp_y = lerp(state.current_pos.y, state.next_pos.y, state.lerp_progress);
+    
+    updateVertexUVs(state.sprite_frames[state.current_sframe], interp_x, interp_y);
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pip);

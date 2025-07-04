@@ -114,7 +114,7 @@ export fn frame() void {
 
     // draw the blended quads
     const proj = mat4.persp(90.0, sapp.widthf() / sapp.heightf(), 0.01, 100.0);
-    const view = mat4.lookat(.{ .x = 0.0, .y = 0.0, .z = 25.0 }, vec3.zero(), vec3.up());
+    const view = mat4.lookat(.{ .x = 0.0, .y = 0.0, .z = 50.0 }, vec3.zero(), vec3.up());
     const view_proj = mat4.mul(proj, view);
 
     state.r += 0.6 * time;
